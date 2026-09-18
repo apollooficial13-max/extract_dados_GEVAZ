@@ -9,34 +9,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from Transform import preparar_dataframe
+
 PASTA_JSON_PADRAO = "Dados_json"
 PASTA_CSV_PADRAO = "Dados_csv"
-
-
-def preparar_dataframe(dados: pd.DataFrame | None) -> pd.DataFrame:
-    """
-    Devolve um DataFrame comum do pandas, seguro para serializar.
-
-    - None vira DataFrame vazio.
-    - Se existir a coluna 'geometry' (GeoDataFrame), ela é convertida para WKT,
-      pois objetos de geometria não são serializáveis em JSON/CSV.
-
-    Função única usada tanto pelo Carregador quanto pelo Main.py.
-    """
-    if dados is None:
-        return pd.DataFrame()
-
-    df = dados.copy()
-    if "geometry" in df.columns:
-        # converte enquanto ainda é coluna de geometria (evita o UserWarning)
-        try:
-            df["geometry"] = df["geometry"].to_wkt()
-        except AttributeError:
-            df["geometry"] = df["geometry"].apply(
-                lambda g: g.wkt if g is not None else None
-            )
-    # deixa de ser GeoDataFrame -> passa a usar o to_json/to_csv do pandas
-    return pd.DataFrame(df)
 
 
 class Carregador:
