@@ -7,6 +7,9 @@ Regra deste módulo: NADA é modificado, filtrado, renomeado ou convertido.
 Todas as colunas originais dos arquivos (nomes, ruas, quantidades, códigos,
 coordenadas, etc.) são mantidas exatamente como vieram.
 
+Erros de leitura NÃO são engolidos: se um arquivo falhar, o pipeline para
+com a exceção original, em vez de terminar "com sucesso" com dados faltando.
+
 A única coisa que o módulo FAZ é ACRESCENTAR colunas auxiliares, sem apagar
 nada do que já existia:
     - arquivo_origem  : de qual pasta/arquivo aquela linha veio
@@ -104,44 +107,33 @@ class ExtratorShapefile(ExtratorBase):
         gdf["geometry_wkt"] = gdf.geometry.to_wkt()
         gdf["tipo_geometria"] = gdf.geometry.geom_type
 
-        try:
-            gdf_geo = gdf.to_crs(self.CRS_SAIDA) if gdf.crs is not None else gdf
-        except Exception:
-            gdf_geo = gdf
+        gdf_geo = gdf.to_crs(self.CRS_SAIDA) if gdf.crs is not None else gdf
 
         # ponto representativo: para Point é o próprio ponto;
         # para polígonos, um ponto garantidamente dentro da área
-        try:
-            pontos = gdf_geo.geometry.representative_point()
-            gdf["longitude"] = pontos.x
-            gdf["latitude"] = pontos.y
-        except Exception as erro:
-            print(f"[{self.nome}] Aviso ao calcular lat/long: {erro}")
-            gdf["longitude"] = None
-            gdf["latitude"] = None
+        pontos = gdf_geo.geometry.representative_point()
+        gdf["longitude"] = pontos.x
+        gdf["latitude"] = pontos.y
 
         return gdf
 
     def extrair(self) -> pd.DataFrame:
         partes = []
         for caminho in self.caminhos:
-            try:
-                gdf = gpd.read_file(caminho)
-                gdf["arquivo_origem"] = os.path.basename(caminho.rstrip("/\\"))
-                gdf["caminho_origem"] = caminho
-                gdf["crs_origem"] = str(gdf.crs)
+            gdf = gpd.read_file(caminho)
+            gdf["arquivo_origem"] = os.path.basename(caminho.rstrip("/\\"))
+            gdf["caminho_origem"] = caminho
+            gdf["crs_origem"] = str(gdf.crs)
 
-                gdf = self._acrescentar_coordenadas(gdf)
+            gdf = self._acrescentar_coordenadas(gdf)
 
-                # vira DataFrame comum; a geometria fica preservada em geometry_wkt
-                df = pd.DataFrame(gdf.drop(columns="geometry"))
-                partes.append(df)
+            # vira DataFrame comum; a geometria fica preservada em geometry_wkt
+            df = pd.DataFrame(gdf.drop(columns="geometry"))
+            partes.append(df)
 
-                print(f"[{self.nome}] Lido: {caminho} "
-                      f"({len(df)} linhas, {len(df.columns)} colunas)")
-                print(f"           colunas: {list(df.columns)}")
-            except Exception as erro:
-                print(f"[{self.nome}] ERRO ao ler '{caminho}': {erro}")
+            print(f"[{self.nome}] Lido: {caminho} "
+                  f"({len(df)} linhas, {len(df.columns)} colunas)")
+            print(f"           colunas: {list(df.columns)}")
 
         # sort=False preserva a ordem; colunas que existem só em alguns
         # arquivos são todas mantidas (ficam vazias onde não existiam)
@@ -164,19 +156,16 @@ class ExtratorXML(ExtratorBase):
     def extrair(self) -> pd.DataFrame:
         registros = []
         for arquivo in glob.glob(self.padrao_glob):
-            try:
-                raiz = ET.parse(arquivo).getroot()
-                for elem in raiz.iter():
-                    registros.append({
-                        "arquivo": os.path.basename(arquivo),
-                        "caminho_origem": arquivo,
-                        "tag": elem.tag,
-                        "texto": elem.text if elem.text is not None else "",
-                        "atributos": str(elem.attrib),
-                    })
-                print(f"[{self.nome}] Lido: {arquivo}")
-            except Exception as erro:
-                print(f"[{self.nome}] ERRO ao ler '{arquivo}': {erro}")
+            raiz = ET.parse(arquivo).getroot()
+            for elem in raiz.iter():
+                registros.append({
+                    "arquivo": os.path.basename(arquivo),
+                    "caminho_origem": arquivo,
+                    "tag": elem.tag,
+                    "texto": elem.text if elem.text is not None else "",
+                    "atributos": str(elem.attrib),
+                })
+            print(f"[{self.nome}] Lido: {arquivo}")
 
         self.dados = pd.DataFrame(registros)
         return self.dados
