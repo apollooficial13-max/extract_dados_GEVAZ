@@ -1,5 +1,5 @@
 """
-extract.py
+Extract.py
 ----------
 Camada de EXTRAÇÃO.
 
@@ -17,8 +17,8 @@ nada do que já existia:
     - latitude/longitude : extraídas da geometria (ponto ou ponto interno)
 """
 
-import os
 import glob
+import os
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 
@@ -27,6 +27,12 @@ import pandas as pd
 
 
 BASE_PADRAO = "Dados_extraidos"
+DISTRITOS_SANITARIOS = range(1, 9)  # DS 1 a DS 8
+
+
+def pastas_por_distrito(base: str, subpasta: str) -> list[str]:
+    """Monta os caminhos '<base>/<subpasta>/DS N' para cada distrito sanitário."""
+    return [f"{base}/{subpasta}/DS {i}" for i in DISTRITOS_SANITARIOS]
 
 
 # ---------------------------------------------------------------------------
@@ -35,16 +41,16 @@ BASE_PADRAO = "Dados_extraidos"
 class ExtratorBase(ABC):
     """Toda fonte de dados extraída deve herdar daqui."""
 
-    def __init__(self, nome):
-        self.nome = nome          # identificador único da fonte
-        self.dados = None         # DataFrame resultante
+    def __init__(self, nome: str) -> None:
+        self.nome = nome                        # identificador único da fonte
+        self.dados: pd.DataFrame | None = None  # DataFrame resultante
 
     @abstractmethod
-    def extrair(self):
+    def extrair(self) -> pd.DataFrame:
         """Lê os dados brutos e preenche self.dados. Deve retornar self.dados."""
         raise NotImplementedError
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         linhas = 0 if self.dados is None else len(self.dados)
         return f"<{self.__class__.__name__} nome='{self.nome}' linhas={linhas}>"
 
@@ -55,11 +61,11 @@ class ExtratorBase(ABC):
 class ExtratorArquivos(ExtratorBase):
     """Lista, recursivamente, todos os arquivos de uma pasta."""
 
-    def __init__(self, pasta=BASE_PADRAO, nome="explorar"):
+    def __init__(self, pasta: str = BASE_PADRAO, nome: str = "explorar") -> None:
         super().__init__(nome)
         self.pasta = pasta
 
-    def extrair(self):
+    def extrair(self) -> pd.DataFrame:
         registros = []
         for pasta_atual, _subpastas, arquivos in os.walk(self.pasta):
             for nome_arquivo in arquivos:
@@ -89,11 +95,11 @@ class ExtratorShapefile(ExtratorBase):
     # as colunas originais não são alteradas
     CRS_SAIDA = "EPSG:4326"
 
-    def __init__(self, nome, caminhos):
+    def __init__(self, nome: str, caminhos: str | list[str]) -> None:
         super().__init__(nome)
         self.caminhos = [caminhos] if isinstance(caminhos, str) else list(caminhos)
 
-    def _acrescentar_coordenadas(self, gdf):
+    def _acrescentar_coordenadas(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Cria geometry_wkt, tipo_geometria, latitude e longitude sem alterar nada."""
         gdf["geometry_wkt"] = gdf.geometry.to_wkt()
         gdf["tipo_geometria"] = gdf.geometry.geom_type
@@ -116,7 +122,7 @@ class ExtratorShapefile(ExtratorBase):
 
         return gdf
 
-    def extrair(self):
+    def extrair(self) -> pd.DataFrame:
         partes = []
         for caminho in self.caminhos:
             try:
@@ -151,11 +157,11 @@ class ExtratorShapefile(ExtratorBase):
 class ExtratorXML(ExtratorBase):
     """Lê vários XMLs elemento a elemento, preservando tag, texto e atributos."""
 
-    def __init__(self, nome, padrao_glob):
+    def __init__(self, nome: str, padrao_glob: str) -> None:
         super().__init__(nome)
         self.padrao_glob = padrao_glob
 
-    def extrair(self):
+    def extrair(self) -> pd.DataFrame:
         registros = []
         for arquivo in glob.glob(self.padrao_glob):
             try:
@@ -182,43 +188,39 @@ class ExtratorXML(ExtratorBase):
 class ExtratorBDS(ExtratorShapefile):
     """Base de Distritos Sanitários."""
 
-    def __init__(self, base=BASE_PADRAO):
+    def __init__(self, base: str = BASE_PADRAO) -> None:
         super().__init__(
             nome="bds",
-            caminhos=f"{base}/BASE Distritos Sanitários shapefile/",
+            caminhos=f"{base}/BASE Distritos sanitários shapefile/",
         )
 
 
 class ExtratorEstacoesDisseminadoras(ExtratorShapefile):
     """Estações Disseminadoras (DS 1 a DS 8)."""
 
-    def __init__(self, base=BASE_PADRAO):
+    def __init__(self, base: str = BASE_PADRAO) -> None:
         super().__init__(
             nome="estacoes_disseminadoras",
-            caminhos=[
-                f"{base}/ESTAÇÕES DISSEMINADORAS shapefile/DS {i}"
-                for i in range(1, 9)
-            ],
+            caminhos=pastas_por_distrito(base, "ESTAÇÕES DISSEMINADORAS shapefile"),
         )
 
 
 class ExtratorOvitrampas2026(ExtratorShapefile):
     """Atualização total das Ovitrampas 2026 (DS 1 a DS 8)."""
 
-    def __init__(self, base=BASE_PADRAO):
+    def __init__(self, base: str = BASE_PADRAO) -> None:
         super().__init__(
             nome="ovitrampas_2026",
-            caminhos=[
-                f"{base}/ATUALIZAÇÃO TOTAL DAS OVITRAMPAS 2026 shapefile/DS {i}"
-                for i in range(1, 9)
-            ],
+            caminhos=pastas_por_distrito(
+                base, "ATUALIZAÇÃO TOTAL DAS OVITRAMPAS 2026 shapefile"
+            ),
         )
 
 
 class ExtratorDistritosSanitariosXML(ExtratorXML):
     """XMLs de metadado dos Distritos Sanitários (*.shp.xml)."""
 
-    def __init__(self, base=BASE_PADRAO):
+    def __init__(self, base: str = BASE_PADRAO) -> None:
         super().__init__(
             nome="distritos_sanitarios_xml",
             padrao_glob=f"{base}/BASE Distritos sanitários shapefile/*.shp.xml",
@@ -231,7 +233,7 @@ class ExtratorDistritosSanitariosXML(ExtratorXML):
 class GerenciadorExtracao:
     """Executa todos os extratores e devolve {nome: DataFrame}."""
 
-    def __init__(self, base=BASE_PADRAO):
+    def __init__(self, base: str = BASE_PADRAO) -> None:
         self.base = base
         self.extratores = [
             ExtratorArquivos(pasta=base),
@@ -241,11 +243,11 @@ class GerenciadorExtracao:
             ExtratorDistritosSanitariosXML(base=base),
         ]
 
-    def adicionar(self, extrator):
+    def adicionar(self, extrator: ExtratorBase) -> "GerenciadorExtracao":
         self.extratores.append(extrator)
         return self
 
-    def extrair_tudo(self):
+    def extrair_tudo(self) -> dict[str, pd.DataFrame]:
         resultado = {}
         for extrator in self.extratores:
             print(f"\n=== Extraindo: {extrator.nome} ===")
